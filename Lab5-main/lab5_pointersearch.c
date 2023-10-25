@@ -28,8 +28,9 @@ pointerComparator_LatinName(const void *vKey, const void *vData)
 	// TO DO:
 	// Get the key and data from the void pointers.  Keep in mind the
 	// data is now a "pointer to pointer"
-
-
+    key  = (char *) vKey; 
+    fruitData = (FruitData **) vData;
+    result = strcmp(key, (*fruitData)->latin); 
 
 	// TO DO:
 	// Compare the key to the "latin" field in the data referenced
@@ -76,7 +77,9 @@ searchInLatinName(FruitData * const *fruitDataPointers, int nFruits, char *key)
 	// TO DO:
 	// Call the binary search with the array of pointers to pointers
 	// to the data, the appropriate size, and the comparator above
-
+    pointerResult = (FruitData **)binarysearch( 
+            key, fruitDataPointers, nFruits, sizeof(FruitData *), 
+            pointerComparator_LatinName); 
 
 	if (pointerResult != NULL) {
 		arrayIndex = pointerResult - fruitDataPointers;
