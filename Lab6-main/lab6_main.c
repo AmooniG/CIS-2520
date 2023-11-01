@@ -15,6 +15,9 @@
  */
 int recordCompare(const void *a, const void *b)
 {
+	const EMPLOYEErecord *recordA = (const EMPLOYEErecord *)a;
+    const EMPLOYEErecord *recordB = (const EMPLOYEErecord *)b;
+    return strcmp(recordA->surname, recordB->surname);
 }
 
 /**
@@ -25,6 +28,12 @@ int recordCompare(const void *a, const void *b)
  * HINT: you will need to take into account that the void * arguments
  * are passing you a pointer TO a pointer
  */
+int pointerCompare(const void *a, const void *b)
+{
+    const EMPLOYEErecord *recordA = *(const EMPLOYEErecord **)a;
+    const EMPLOYEErecord *recordB = *(const EMPLOYEErecord **)b;
+    return -strcmp(recordA->givenname, recordB->givenname); // Negative for descending order
+}
 
 
 
@@ -43,7 +52,12 @@ timeSortingOfRecords(EMPLOYEErecord *records, int nRecords)
 	// in ascending order by surname.
 	// HINT: you will use the comparator you wrote above
 
-	return recordSortTimeInSeconds;
+    startTime = clock();
+    qsort(records, nRecords, sizeof(EMPLOYEErecord), recordCompare);
+    endTime = clock();
+
+    recordSortTimeInSeconds = (double)(endTime - startTime) / CLOCKS_PER_SEC;
+    return recordSortTimeInSeconds;
 }
 
 /**
@@ -61,8 +75,12 @@ timeSortingOfPointers(EMPLOYEErecord **recordPointers, int nRecords)
 	// in ascending order by surname.
 	// HINT: you will use the comparator you wrote above
 	// ANOTHER HINT: be sure you have the right tile size
+    startTime = clock();
+    qsort(recordPointers, nRecords, sizeof(EMPLOYEErecord *), pointerCompare);
+    endTime = clock();
 
-	return pointerSortTimeInSeconds;
+    pointerSortTimeInSeconds = (double)(endTime - startTime) / CLOCKS_PER_SEC;
+    return pointerSortTimeInSeconds;
 }
 
 /**
