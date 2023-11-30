@@ -7,23 +7,21 @@
 #include <errno.h>
 
 #include "aarray.h"
+#include "fasta.h"
 #include "data-reader.h"
-#include "keyprint.h"
 
 #define	LINE_MAX	128
 
 /**
- * Load the assocArray of attribute value entries
+ * Load the associative array of attribute value entries
  */
 static int
-loadAssociativeArray(AssociativeArray *assocArray, char *filename, int useIntKey)
+loadAssociativeArray(AssociativeArray *assocArray, char *filename)
 {
-	char linebuffer[LINE_MAX];
-	char *strkey = NULL, *value = NULL;
-	int nEntries = 0;
+	FASTArecord *fRecord = NULL;
 	clock_t startTime, endTime;
 	double timeTaken;
-	int intkey;
+	int nEntries = 0;
 	FILE *fp = NULL;
 
 	fp = fopen(filename, "r");
@@ -33,81 +31,63 @@ loadAssociativeArray(AssociativeArray *assocArray, char *filename, int useIntKey
 		return -1;
 	}
 
-	startTime = clock();
-	while (readDataLine(fp, linebuffer, LINE_MAX, &strkey, &value) > 0) {
-		if (useIntKey && isdigit(strkey[0])) {
-			if (sscanf(strkey, "%d", &intkey) != 1) {
-				fprintf(stderr, "Error: Failed extracting integer from '%s'\n", strkey);
-				return -1;
-			}
-			if (aaInsert(assocArray,
-						(AAKeyType) &intkey, sizeof(int),
-						strdup(value)) < 0) {
-				fprintf(stderr, "Failed to add key '%d' to assocArray\n", intkey);
-				return -1;
-			}
-		} else {
+	fRecord = fastaAllocateRecord();
 
-			if (aaInsert(assocArray,
-						(AAKeyType) strkey, strlen(strkey),
-						strdup(value)) < 0) {
-				fprintf(stderr, "Failed to add key '%s' to assocArray\n", strkey);
-				return -1;
-			}
+	startTime = clock();
+	while (fastaReadRecord(fp, fRecord) > 0) {
+		if (aaInsert(assocArray,
+						(AAKeyType) fRecord->id, strlen(fRecord->id),
+						fRecord) < 0) {
+			fprintf(stderr,
+				"Failed to add FASTA record with key '%s' to associative array\n",
+				fRecord->id);
+			return -1;
 		}
 		nEntries++;
+		fRecord = fastaAllocateRecord();
 	}
 	endTime = clock();
 
 	timeTaken = ((double) (endTime - startTime)) / CLOCKS_PER_SEC;
 	printf("Inserts took %lf seconds\n", timeTaken);
 
+	/** the last record didn't get used */
+	fastaDeallocateRecord(fRecord);
+
 	fclose(fp);
 	return nEntries;
 }
 
 /**
- * Query the array with all the values in the given file
+ * Query the associative array with all the values in the given file
  */
 static int
-queryAssociativeArray(AssociativeArray *assocArray, char *filename, int useIntKey)
+queryAssociativeArray(AssociativeArray *assocArray, char *filename)
 {
 	char linebuffer[LINE_MAX];
-	char *strkey = NULL, *value = NULL;
-	int intkey;
 	clock_t startTime, endTime;
 	double timeTaken;
+	char *strkey = NULL;
+	FASTArecord *value = NULL;
 	FILE *fp = NULL;
 
 	fp = fopen(filename, "r");
 	if (fp == NULL) {
-		fprintf(stderr, "Error: Failed to open query input file '%s' : %s\n",
+		fprintf(stderr,
+				"Error: Failed to open query input file '%s' : %s\n",
 				filename, strerror(errno));
 		return -1;
 	}
 
 	startTime = clock();
 	while (readPlainLine(fp, linebuffer, LINE_MAX, &strkey)) {
-		if (useIntKey && isdigit(strkey[0])) {
-			if (sscanf(strkey, "%d", &intkey) != 1) {
-				fprintf(stderr, "Error: Failed extracting integer from '%s'\n", strkey);
-				return -1;
-			}
-
-			value = aaLookup(assocArray, (AAKeyType) &intkey, sizeof(int));
-			if (value == NULL) {
-				printf("LOOKUP: key (%d) produced no value\n", intkey);
-			} else {
-				printf("LOOKUP: key (%d) produced value '%s'\n", intkey, value);
-			}
-
+		value = (FASTArecord *) aaLookup(assocArray,
+				(AAKeyType) strkey, strlen(strkey));
+		if (value == NULL) {
+			printf("LOOKUP: key '%s' produced no value\n", strkey);
 		} else {
-			value = aaLookup(assocArray, (AAKeyType) strkey, strlen(strkey));
-			if (value == NULL) {
-				printf("LOOKUP: key '%s' produced no value\n", strkey);
-			} else {
-				printf("LOOKUP: key '%s' produced value '%s'\n", strkey, value);
-			}
+			printf("LOOKUP: key '%s' produced record:\n", strkey);
+			fastaPrintRecord(stdout, value);
 		}
 	}
 	endTime = clock();
@@ -115,25 +95,23 @@ queryAssociativeArray(AssociativeArray *assocArray, char *filename, int useIntKe
 	timeTaken = ((double) (endTime - startTime)) / CLOCKS_PER_SEC;
 	printf("Queries took %lf seconds\n", timeTaken);
 
-	/** cleanup list */
-
 	fclose(fp);
 	return 1;
 }
 
 /**
- * Delete the selected values from the array.  Note that we free the values
+ * Delete the selected values from the associative array.  Note that we free the values
  * as otherwise they are memory leaks as we are managing the memory for
  * these values outside of the library
  */
 static int
-deleteFromAssociativeArray(AssociativeArray *assocArray, char *filename, int useIntKey)
+deleteFromAssociativeArray(AssociativeArray *assocArray, char *filename)
 {
 	char linebuffer[LINE_MAX];
-	char *strkey = NULL, *value = NULL;
+	char *strkey = NULL;
+	FASTArecord *value = NULL;
 	clock_t startTime, endTime;
 	double timeTaken;
-	int intkey;
 	FILE *fp = NULL;
 
 	fp = fopen(filename, "r");
@@ -145,28 +123,14 @@ deleteFromAssociativeArray(AssociativeArray *assocArray, char *filename, int use
 
 	startTime = clock();
 	while (readPlainLine(fp, linebuffer, LINE_MAX, &strkey)) {
-		if (useIntKey && isdigit(strkey[0])) {
-			if (sscanf(strkey, "%d", &intkey) != 1) {
-				fprintf(stderr, "Error: Failed extracting integer from '%s'\n", strkey);
-				return -1;
-			}
-
-			value = aaDelete(assocArray, (AAKeyType) &intkey, sizeof(int));
-			if (value == NULL) {
-				printf("DELETE: key (%d) produced no value\n", intkey);
-			} else {
-				printf("DELETE: key (%d) produced value '%s'\n", intkey, value);
-				free(value);
-			}
-
+		value = (FASTArecord *) aaDelete(assocArray,
+				(AAKeyType) strkey, strlen(strkey));
+		if (value == NULL) {
+			printf("DELETE: key '%s' produced no value\n", strkey);
 		} else {
-			value = aaDelete(assocArray, (AAKeyType) strkey, strlen(strkey));
-			if (value == NULL) {
-				printf("DELETE: key '%s' produced no value\n", strkey);
-			} else {
-				printf("DELETE: key '%s' produced value '%s'\n", strkey, value);
-				free(value);
-			}
+			printf("DELETE: successfully deleted record with key '%s' \n",
+					strkey);
+			fastaDeallocateRecord(value);
 		}
 	}
 	endTime = clock();
@@ -180,25 +144,9 @@ deleteFromAssociativeArray(AssociativeArray *assocArray, char *filename, int use
 
 
 static int
-printIteratorValue(AAKeyType key, size_t keylen, void *value, void *userdata)
-{
-	char keybuffer[LINE_MAX];	// we will simply truncate keys at this length
-	FILE *ofp = (FILE *) userdata;
-
-	if (myPrintableKey(keybuffer, LINE_MAX, key, keylen) < 0) {
-		fprintf(stderr, "Error: key conversion failed!");
-		return -1;
-	}
-
-	fprintf(ofp, "  Iterator Key: %s %p\n", keybuffer, value);
-
-	return 0;
-}
-
-static int
 deleteValue(AAKeyType key, size_t keylen, void *value, void *userdata)
 {
-	if (value != NULL)	free(value);
+	if (value != NULL)	fastaDeallocateRecord(value);
 	return 0;
 }
 
@@ -210,17 +158,15 @@ void usage(char *progname)
 {
 	fprintf(stderr, "%s [<OPTIONS>] <datafile> [ <datafile> ... ]\n", progname);
 	fprintf(stderr, "\n");
-	fprintf(stderr, "Creates an associative array and loads it with values from\n");
-	fprintf(stderr, "the data files given.\n");
+	fprintf(stderr, "Creates an associative array and loads it with FASTA records\n");
+	fprintf(stderr, "from the data files given.\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Options: \n");
 	fprintf(stderr, "%-*s: Print this help.\n", OPTIONLEN, "-h");
-	fprintf(stderr, "%-*s: If a key is made of digits, store it as an int.\n", OPTIONLEN, "-i");
 	fprintf(stderr, "%-*s: Output file to write to, default stdout.\n",
 			OPTIONLEN, "-o <FILE>");
 	fprintf(stderr, "%-*s: Size of table used internally, default %d.\n",
 			OPTIONLEN, "-n <SIZE>", DEFAULT_ARRAY_SIZE);
-	fprintf(stderr, "%-*s: Print out the table after processing.\n", OPTIONLEN, "-p");
 	fprintf(stderr, "%-*s: Hash using the given algorithm.  Choices are \"sum\", \"length\",\n",
 			OPTIONLEN, "-H <ALG>");
 	fprintf(stderr, "%-*s: or your own algorithm.\n", OPTIONLEN, "");
@@ -248,8 +194,6 @@ main(int argc, char **argv)
 	char *programname = NULL;
 	FILE *ofp = stdout;
 	int arraySize = DEFAULT_ARRAY_SIZE;
-	int useIntKey = 0;
-	int iterateContents = 0;
 	int printContents = 0;
 	char *queryfile = NULL, *deletefile = NULL;
 	int i, c;
@@ -261,13 +205,10 @@ main(int argc, char **argv)
 	programname = argv[0];
 
 	/** use getopt(3) to parse command line */
-	while ((c = getopt(argc, argv, "hpiIn:H:P:2:o:q:d:")) != -1) {
-		if (c == 'i') {
-			useIntKey = 1;
-		} else if (c == 'I') {
-			iterateContents = 1;
-		} else if (c == 'p') {
+	while ((c = getopt(argc, argv, "hpn:H:2:P:o:q:d:")) != -1) {
+		if (c == 'p') {
 			printContents = 1;
+
 		} else if (c == 'n') {
 			if (sscanf(optarg, "%d", &arraySize) != 1) {
 				fprintf(stderr,
@@ -277,6 +218,7 @@ main(int argc, char **argv)
 				usage(programname);
 			}
 
+		} else if (c == 'H') {
 		} else if (c == 'H') {
 			hash1 = optarg;
 
@@ -315,7 +257,7 @@ main(int argc, char **argv)
 		usage(programname);
 	}
 
-	/** allocate the array and fail out if we cannot */
+	/** allocate the associative array and fail out if we cannot */
 	assocArray = aaCreateAssociativeArray(arraySize, probe, hash1, hash2);
 	if (assocArray == NULL) {
 		fprintf(stderr, "Error: cannot allocate associative array - exitting\n");
@@ -325,7 +267,7 @@ main(int argc, char **argv)
 
 	/** getopt leaves us only "file" arguments left in argv */
 	for (i = 0; i < argc; i++) {
-		if (loadAssociativeArray(assocArray, argv[i], useIntKey) < 0) {
+		if (loadAssociativeArray(assocArray, argv[i]) < 0) {
 			fprintf(stderr, "Error: failed loading from file '%s'\n", argv[i]);
 			return -1;
 		}
@@ -335,23 +277,17 @@ main(int argc, char **argv)
 
 	/** delete anything that we were asked to */
 	if (deletefile != NULL) {
-		deleteFromAssociativeArray(assocArray, deletefile, useIntKey);
+		deleteFromAssociativeArray(assocArray, deletefile);
 	}
 
 	/** perform any queries we were asked to */
 	if (queryfile != NULL) {
-		queryAssociativeArray(assocArray, queryfile, useIntKey);
-	}
-
-	/** iterate (printing each key) */
-	if (iterateContents) {
-		aaIterateAction(assocArray, printIteratorValue, stdout);
+		queryAssociativeArray(assocArray, queryfile);
 	}
 
 	/* print out what we loaded */
-	aaPrintSummary(ofp, assocArray);
 	if (printContents) {
-		aaPrintContents(ofp, assocArray, "  ");
+		aaPrintContents(ofp, assocArray, "    ");
 	}
 
 	/* clean up before exit */
